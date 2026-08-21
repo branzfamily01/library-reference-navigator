@@ -54,7 +54,7 @@ function getClass(call=''){
   const s=String(call).trim().normalize('NFKC');const m=s.match(/\d/);if(m)return m[0];if(/^E/i.test(s))return'E';return'other';
 }
 function isFiction(b){const c=getClass(b.call);return c==='9'||c==='E';}
-function isNovel(b){const call=String(b.call||'').normalize('NFKC');if(/^E(?:-|$)/i.test(call))return false;return /9\d{2}/.test(call)||getClass(call)==='9';}
+function isNovel(b){const call=String(b.call||'').normalize('NFKC');if(/^E(?:-|$)/i.test(call))return false;const m=call.match(/(9\d{2})/);if(!m)return false;return /^(913|923|933|943|953|963|973|983|989)$/.test(m[1]);}
 function textOf(b,extra=''){return normalize([b.title,b.author,b.publisher,b.call,extra].join(' '));}
 function detectByQuery(list,q){const nq=normalize(q);return list.filter(item=>item.query.some(t=>nq.includes(normalize(t))));}
 function detectConcepts(q){return detectByQuery(CONCEPTS,q);}
@@ -66,15 +66,15 @@ function baseScoreBook(b,opts,concepts,moods){
   for(const p0 of tokenize(opts.query)){
     const p=normalize(p0);if(!p)continue;
     if(t.includes(p)){score+=5;lexical+=5;}else{
-      let hit=0;for(let i=0;i<p.length-1;i++)if(t.includes(p.slice(i,i+2)))hit++;
-      score+=Math.min(2.4,hit*.35);
+      if(p.length<=8){let hit=0,total=Math.max(1,p.length-1);for(let i=0;i<p.length-1;i++)if(t.includes(p.slice(i,i+2)))hit++;const ratio=hit/total;if(ratio>=.5)score+=Math.min(1.5,ratio*1.5);}
     }
   }
   const cls=getClass(b.call);
   concepts.forEach((c,ci)=>{
     let hit=false;
     if(c.book.some(k=>t.includes(normalize(k)))){score+=7;hit=true;}
-    if(c.classes.includes(cls))score+=ci===0?2.4:1.1;
+    for(const k of c.query){const nk=normalize(k);if(nk&&q.includes(nk)&&t.includes(nk)){score+=10;lexical+=4;hit=true;break;}}
+    if(c.classes.includes(cls))score+=ci===0?.8:.35;
     if(hit)conceptHits++;
   });
   moods.forEach(m=>{if(m.book.some(k=>t.includes(normalize(k)))){score+=4;moodHits++;}});
@@ -88,15 +88,18 @@ function baseScoreBook(b,opts,concepts,moods){
   if(opts.length==='medium')score+=pages?(pages<=450?2:-1):0;
   if(opts.year==='recent')score+=year?(year>=2015?4:year>=2005?1:-2):0;
   if(opts.year==='classic')score+=year&&year<2015?1:0;
+  const callNorm=String(b.call||'').normalize('NFKC');
   if(/小説|物語|フィクション/.test(raw))score+=fiction?9:-14;
   if(/ノンフィクション|実用|具体的|現実的/.test(raw))score+=!fiction?7:-5;
   if(/短い|短め|すぐ読|読みやす/.test(raw))score+=pages?(pages<=260?4:pages<=380?1:-1):0;
   if(/新しい|最近|近年/.test(raw))score+=year?(year>=2015?3:-1):0;
   if(/古典|昔|名作/.test(raw))score+=year&&year<2005?2:0;
-  if(/説教っぽくない|自己啓発っぽくない|押しつけない/.test(raw))score+=fiction?4:0;
+  if(/説教っぽくな|自己啓発っぽくな|押しつけな|ハウツーじゃな|直接的じゃな/.test(raw)){
+    score+=fiction?6:0;
+    if(/^B?-?159(?:\.|-|$)/.test(callNorm)||/(成功する|後悔しない|幸せな生き方|人生.*方法|\d+の方法|\d+の習慣|自己啓発)/.test(String(b.title||'')))score-=12;
+  }
   if(!concepts.length&&moods.length&&fiction)score+=2.3;
   if(/意外/.test(raw))score-=lexical*.2;
-  const callNorm=String(b.call||'').normalize('NFKC');
   if(/^\d{1,3}-20\d{2}$/.test(callNorm)&&!/大学|進路|受験|入試/.test(raw))score-=16;
   if(/教学社|河合出版|駿台|代々木ゼミ|赤本/.test(String(b.publisher||''))&&!/大学|進路|受験|入試/.test(raw))score-=12;
   return {score,lexical,pages,year,cls,fiction,novel,conceptHits,moodHits};
