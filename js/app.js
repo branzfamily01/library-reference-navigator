@@ -45,6 +45,7 @@ function doSearch(){
   setTimeout(()=>searchWorker.postMessage({type:'search',payload:activeOptions}),90);
 }
 function handleLocalResults(data){
+  if(data?.seq&&data.seq!==searchSeq)return;
   renderResults(data,'local');
   if(!els.enrichToggle?.checked){hideEnrichmentBanner();return;}
   startEnrichment(data,activeOptions,searchSeq);
@@ -53,6 +54,7 @@ function showEnrichmentBanner(text,busy=true){if(!els.enrichmentBanner)return;el
 function hideEnrichmentBanner(){els.enrichmentBanner?.classList.add('hidden');}
 
 function normalizeLoose(s=''){return String(s).normalize('NFKC').toLowerCase().replace(/著|編|訳|監修|原作|作/g,'').replace(/[^\p{L}\p{N}]+/gu,'');}
+function cacheKey(book){return `${book.id}::${normalizeLoose(book.title)}`;}
 function dice(a,b){a=normalizeLoose(a);b=normalizeLoose(b);if(!a||!b)return 0;if(a===b)return 1;const grams=x=>{const out=[];for(let i=0;i<x.length-1;i++)out.push(x.slice(i,i+2));return out};const ga=grams(a),gb=grams(b);if(!ga.length||!gb.length)return a.includes(b)||b.includes(a)?0.8:0;const bag=new Map();gb.forEach(g=>bag.set(g,(bag.get(g)||0)+1));let hit=0;ga.forEach(g=>{const n=bag.get(g)||0;if(n){hit++;bag.set(g,n-1)}});return 2*hit/(ga.length+gb.length);}
 function firstAuthor(author=''){return String(author).split(/[／/∥,，;]/)[0].replace(/\s*(著|編|訳|監修|原作|作)$/,'').trim().slice(0,40);}
 function cleanTitle(title=''){return String(title).replace(/[［\[].*?[］\]]/g,' ').replace(/\s+/g,' ').trim().slice(0,100);}
@@ -64,7 +66,7 @@ function candidateScore(book,info){
   return score;
 }
 async function fetchGoogleMetadata(book){
-  const cached=enrichmentCache[String(book.id)];if(cached){if(cached.notFound&&Date.now()-(cached.fetchedAt||0)<7*864e5)return null;if(!cached.notFound)return cached;}
+  const key=cacheKey(book);const cached=enrichmentCache[key]||enrichmentCache[String(book.id)];if(cached){if(cached.notFound&&Date.now()-(cached.fetchedAt||0)<7*864e5)return null;if(!cached.notFound)return cached;}
   const title=cleanTitle(book.title),author=firstAuthor(book.author);if(!title)return null;
   const q=`intitle:${title}${author?` inauthor:${author}`:''}`;const url=`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=5&langRestrict=ja&projection=full`;
   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),5000);
@@ -72,10 +74,10 @@ async function fetchGoogleMetadata(book){
     const resp=await fetch(url,{signal:controller.signal,mode:'cors',credentials:'omit'});if(!resp.ok)throw new Error(`HTTP ${resp.status}`);const json=await resp.json();const items=json.items||[];
     let best=null,bestScore=0;
     for(const item of items){const info=item.volumeInfo||{};const s=candidateScore(book,info);if(s>bestScore){bestScore=s;best={item,info};}}
-    if(!best||bestScore<48){enrichmentCache[String(book.id)]={notFound:true,fetchedAt:Date.now()};scheduleCacheSave();return null;}
+    if(!best||bestScore<48){enrichmentCache[key]={notFound:true,fetchedAt:Date.now()};scheduleCacheSave();return null;}
     const ids=best.info.industryIdentifiers||[];const isbn13=ids.find(x=>x.type==='ISBN_13')?.identifier||'';const isbn10=ids.find(x=>x.type==='ISBN_10')?.identifier||'';
     const meta={source:'Google Books',googleId:best.item.id||'',title:best.info.title||'',subtitle:best.info.subtitle||'',authors:best.info.authors||[],publisher:best.info.publisher||'',publishedDate:best.info.publishedDate||'',description:stripHtml(best.info.description||'').slice(0,1800),categories:best.info.categories||[],pageCount:best.info.pageCount||null,isbn13,isbn10,infoLink:best.info.infoLink||'',matchConfidence:Math.round(Math.min(99,bestScore)),fetchedAt:Date.now()};
-    enrichmentCache[String(book.id)]=meta;scheduleCacheSave();return meta;
+    enrichmentCache[key]=meta;scheduleCacheSave();return meta;
   }catch(err){return null;}finally{clearTimeout(timer);}
 }
 async function mapLimit(items,limit,fn,onProgress){let index=0,done=0;const out=new Array(items.length);async function runner(){while(true){const i=index++;if(i>=items.length)return;out[i]=await fn(items[i],i);done++;onProgress?.(done,items.length);}}await Promise.all(Array.from({length:Math.min(limit,items.length)},runner));return out;}
@@ -83,19 +85,19 @@ async function startEnrichment(data,opts,seq){
   if(!navigator.onLine){showEnrichmentBanner('オフラインのため、今回は端末内の蔵書情報だけで検索しました。',false);return;}
   const candidates=(data.results||[]).slice(0,18);if(!candidates.length)return;
   const existing={};const missing=[];
-  for(const b of candidates){const c=enrichmentCache[String(b.id)];if(c&&!c.notFound)existing[String(b.id)]=c;else if(!c||Date.now()-(c.fetchedAt||0)>7*864e5)missing.push(b);}
+  for(const b of candidates){const c=enrichmentCache[cacheKey(b)]||enrichmentCache[String(b.id)];if(c&&!c.notFound)existing[String(b.id)]=c;else if(!c||Date.now()-(c.fetchedAt||0)>7*864e5)missing.push(b);}
   const live=missing.slice(0,MAX_LIVE_ENRICH);showEnrichmentBanner(Object.keys(existing).length?`保存済み書誌 ${Object.keys(existing).length}冊を使い、追加候補を補完しています…`:`候補本の紹介文・カテゴリを照合しています…`);
   await mapLimit(live,4,fetchGoogleMetadata,(done,total)=>showEnrichmentBanner(`書誌情報を補完中… ${done}/${total}冊`));
   if(seq!==searchSeq)return;
-  const enrichments={};for(const b of candidates){const c=enrichmentCache[String(b.id)];if(c&&!c.notFound)enrichments[String(b.id)]=c;}
+  const enrichments={};for(const b of candidates){const c=enrichmentCache[cacheKey(b)]||enrichmentCache[String(b.id)];if(c&&!c.notFound)enrichments[String(b.id)]=c;}
   updateEnrichmentStat();
   if(!Object.keys(enrichments).length){showEnrichmentBanner('外部書誌を取得できなかったため、ローカル検索結果を維持しています。',false);return;}
   showEnrichmentBanner(`${Object.keys(enrichments).length}冊の紹介文・カテゴリを使って最終順位を調整しています…`);
   searchWorker.postMessage({type:'rerank',payload:{results:data.results,opts,seq,enrichments}});
 }
-function handleReranked(data){if(!data)return;renderResults({...data,intent:data.intent?.length?data.intent:lastResultData?.intent||[]},'enriched');showEnrichmentBanner(`書誌補完を使って ${data.enrichedCount||0}冊を再評価しました。検索文そのものは外部送信していません。`,false);}
+function handleReranked(data){if(!data||data?.seq&&data.seq!==searchSeq)return;renderResults({...data,intent:data.intent?.length?data.intent:lastResultData?.intent||[]},'enriched');showEnrichmentBanner(`書誌補完を使って ${data.enrichedCount||0}冊を再評価しました。検索文そのものは外部送信していません。`,false);}
 
-function openBook(id){const b=lastResults.find(x=>String(x.id)===String(id))||books.find(x=>String(x.id)===String(id));if(!b)return;const m=b.bookMeta||enrichmentCache[String(b.id)]||null;
+function openBook(id){const b=lastResults.find(x=>String(x.id)===String(id))||books.find(x=>String(x.id)===String(id));if(!b)return;const m=b.bookMeta||enrichmentCache[cacheKey(b)]||enrichmentCache[String(b.id)]||null;
   const summary=m?.description?`<div class="summary-box"><span class="eyebrow">BOOK SUMMARY</span><p>${escapeHtml(m.description)}</p></div>`:'';
   const cats=m?.categories?.length?`<div class="detail-item"><span>カテゴリ</span><strong>${escapeHtml(m.categories.join(' / '))}</strong></div>`:'';
   const isbn=m?.isbn13||m?.isbn10?`<div class="detail-item"><span>ISBN（書誌補完）</span><strong>${escapeHtml(m.isbn13||m.isbn10)}</strong></div>`:'';
