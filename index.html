@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#143a52" />
+  <meta name="description" content="モンスターライブラリーCSVから、書名を知らなくても気分・ニーズ・テーマで学校蔵書を探すレファレンス検索プロトタイプ" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/app.css" />
+  <title>蔵書レファレンスナビ</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">📚</div>
+      <div>
+        <h1>蔵書レファレンスナビ</h1>
+        <p>本の名前が分からなくても、今のニーズから探す</p>
+      </div>
+    </div>
+    <button class="ghost small" id="openDataBtn" type="button">蔵書データ</button>
+  </header>
+
+  <main>
+    <section class="hero panel">
+      <div class="status-row">
+        <span class="status-dot"></span>
+        <span id="libraryStatus">試用データ 300冊</span>
+      </div>
+      <h2>今日は、どんな本を探していますか？</h2>
+      <p class="lead">タイトルや著者名が分からなくても大丈夫です。気分、悩み、目的、読みやすさをそのまま書いてください。</p>
+      <label class="sr-only" for="queryInput">本の相談内容</label>
+      <textarea id="queryInput" rows="4" placeholder="例：進路に迷っている高校生が、自分の生き方を考えられる本。自己啓発っぽすぎず、小説として読みたい。"></textarea>
+
+      <div class="quick-label">すぐ試す</div>
+      <div class="chips" id="exampleChips">
+        <button class="chip" data-query="友達関係に少し疲れた。重すぎず、読後に少し前向きになれる小説">友達関係 × 前向き</button>
+        <button class="chip" data-query="怖すぎないミステリー。読みやすくて、先が気になる小説">怖すぎないミステリー</button>
+        <button class="chip" data-query="生成AIや人工知能について、社会への影響も含めて考えられる本">AIと社会</button>
+        <button class="chip" data-query="宇宙や科学の不思議を楽しめる、難しすぎない本">宇宙・科学</button>
+        <button class="chip" data-query="生き方や幸福について考えたい。説教っぽくない本">生き方・幸福</button>
+      </div>
+
+      <details class="filters" id="filtersPanel">
+        <summary>条件を少し足す</summary>
+        <div class="filter-grid">
+          <label>本のタイプ
+            <select id="typeFilter">
+              <option value="any">指定なし</option>
+              <option value="fiction">小説・文学寄り</option>
+              <option value="nonfiction">ノンフィクション・知識寄り</option>
+            </select>
+          </label>
+          <label>長さ
+            <select id="lengthFilter">
+              <option value="any">指定なし</option>
+              <option value="short">短め（250ページ程度まで）</option>
+              <option value="medium">中くらい（450ページ程度まで）</option>
+            </select>
+          </label>
+          <label>出版年代
+            <select id="yearFilter">
+              <option value="any">指定なし</option>
+              <option value="recent">比較的新しい（2015年〜）</option>
+              <option value="classic">少し前の本も含めて探す</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <button class="primary search-btn" id="searchBtn" type="button">
+        <span>蔵書から探す</span>
+        <span aria-hidden="true">→</span>
+      </button>
+      <p class="privacy-note">試作版では検索文を外部AIへ送信しません。ブラウザ内で検索します。</p>
+    </section>
+
+    <section id="loading" class="panel loading hidden" aria-live="polite">
+      <div class="spinner"></div>
+      <div>
+        <strong>蔵書を探しています</strong>
+        <p id="loadingText">相談内容をテーマに分解しています…</p>
+      </div>
+    </section>
+
+    <section id="resultsSection" class="hidden">
+      <div class="result-heading">
+        <div>
+          <span class="eyebrow">REFERENCE PICKS</span>
+          <h2>まず、この3冊</h2>
+          <p id="intentSummary"></p>
+        </div>
+        <button class="ghost" id="editSearchBtn" type="button">条件を変える</button>
+      </div>
+
+      <div class="signature-grid" id="signatureGrid"></div>
+
+      <div class="panel refine-panel">
+        <div>
+          <span class="eyebrow">NOT QUITE?</span>
+          <h3>なんか違う、を教えてください</h3>
+          <p>選ぶと条件を足して、すぐ探し直します。</p>
+        </div>
+        <div class="chips refine" id="refineChips">
+          <button class="chip" data-refine="もっと読みやすい">もっと読みやすい</button>
+          <button class="chip" data-refine="もっと短い">もっと短い</button>
+          <button class="chip" data-refine="もっと小説らしい">もっと小説</button>
+          <button class="chip" data-refine="もっと現実的で実用的">もっと現実的</button>
+          <button class="chip" data-refine="もっと明るく前向き">もっと明るい</button>
+          <button class="chip" data-refine="もっと意外な本">もっと意外</button>
+          <button class="chip" data-refine="比較的新しい本">新しい本</button>
+        </div>
+      </div>
+
+      <div class="result-list-wrap">
+        <div class="result-list-head">
+          <h3>ほかの候補</h3>
+          <span id="resultCount"></span>
+        </div>
+        <div id="resultList" class="result-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="dataDialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">LIBRARY DATA</span>
+          <h2>モンスターライブラリーCSV</h2>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="閉じる">×</button>
+      </div>
+      <p>今回の特殊な「蔵書原簿CSV」を、そのまま選べます。Excelで列を削除したり加工する必要はありません。</p>
+
+      <label class="upload-box" for="csvInput">
+        <strong>CSVを選ぶ</strong>
+        <span>モンスターライブラリーから書き出したファイル</span>
+        <input id="csvInput" type="file" accept=".csv,text/csv" />
+      </label>
+
+      <div id="importProgress" class="import-progress hidden">
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p id="progressLabel">読み込み準備中…</p>
+      </div>
+
+      <div class="data-stats" id="dataStats">
+        <div><span>現在の検索対象</span><strong id="statBooks">300冊</strong></div>
+        <div><span>データ種別</span><strong id="statMode">試用データ</strong></div>
+        <div><span>保存</span><strong>この端末内</strong></div>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="danger ghost" id="resetDataBtn" type="button">試用データに戻す</button>
+        <button class="primary" value="cancel">閉じる</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="bookDialog">
+    <form method="dialog" class="dialog-card book-dialog-card">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow" id="bookDialogLabel">BOOK DETAIL</span>
+          <h2 id="bookDialogTitle"></h2>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="閉じる">×</button>
+      </div>
+      <div id="bookDialogBody"></div>
+      <button class="primary full" value="cancel">閉じる</button>
+    </form>
+  </dialog>
+
+  <footer>
+    <p>検索体験検証用プロトタイプ — 蔵書管理・貸出返却はモンスターライブラリー側を正本とします。</p>
+  </footer>
+
+  <script src="js/prototype-data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
