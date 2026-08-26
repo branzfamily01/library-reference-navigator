@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "title": "蔵書レファレンスナビ",
+  "category": "Tools",
+  "summary": "モンスターライブラリーの蔵書CSVから、書名が分からなくても気分・ニーズ・テーマで本を探せるレファレンス検索アプリ。",
+  "tags": ["図書館", "蔵書検索", "レファレンス", "CSV", "学校図書館", "読書"],
+  "color": "blue",
+  "status": "active",
+  "visibility": "public",
+  "manualUrl": "https://branzfamily01.github.io/library-reference-navigator/manual.html"
+}
